@@ -148,11 +148,20 @@ function App() {
       zip.file("metadata/images.json", JSON.stringify(exported, null, 2));
       zip.file("metadata/pages.json", JSON.stringify(state.pages, null, 2));
       zip.file("metadata/crawl.json", JSON.stringify(state.job, null, 2));
-      const blob = await zip.generateAsync({ type: "blob" });
+      // Images are already compressed; STORE avoids JSZip allocating extra
+      // buffers for deflation and streamFiles keeps individual entries small.
+      const blob = await zip.generateAsync({
+        type: "blob",
+        compression: "STORE",
+        streamFiles: true,
+      });
       await downloadBlob(blob, `vju-images-${state.job.id}.zip`);
     } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
       setError(
-        `Export ZIP thất bại: ${e instanceof Error ? e.message : String(e)}`,
+        /array buffer|allocation|memory/i.test(message)
+          ? "Export ZIP thất bại vì tổng dung lượng ảnh quá lớn. Hãy export theo từng đợt hoặc giảm số ảnh trong crawl."
+          : `Export ZIP thất bại: ${message}`,
       );
     } finally {
       setExporting(false);
