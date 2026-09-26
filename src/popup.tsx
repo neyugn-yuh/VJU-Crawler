@@ -128,34 +128,30 @@ function App() {
     setError("");
     setExporting(true);
     try {
-      const zip = new JSZip();
-      const folder = zip.folder("images")!;
-      const exported: CrawledImage[] = [];
-      for (const image of state.images) {
-        try {
-          const response = await fetch(image.url);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          folder.file(image.filename, await response.blob());
-          exported.push({
-            ...image,
-            status: "downloaded",
-            mimeType: response.headers.get("content-type") || undefined,
-          });
-        } catch {
-          /* keep metadata even if one download fails */
+      const batchSize = 50;
+      const batches = Array.from(
+        { length: Math.max(1, Math.ceil(state.images.length / batchSize)) },
+        (_, index) => state.images.slice(index * batchSize, (index + 1) * batchSize),
+      );
+      for (const [index, batch] of batches.entries()) {
+        const zip = new JSZip();
+        const folder = zip.folder("images")!;
+        const exported: CrawledImage[] = [];
+        for (const image of batch) {
+          try {
+            const response = await fetch(image.url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            folder.file(image.filename, await response.blob());
+            exported.push({ ...image, status: "downloaded", mimeType: response.headers.get("content-type") || undefined });
+          } catch { /* keep metadata even if one download fails */ }
         }
+        zip.file("metadata/images.json", JSON.stringify(exported, null, 2));
+        zip.file("metadata/pages.json", JSON.stringify(state.pages, null, 2));
+        zip.file("metadata/crawl.json", JSON.stringify(state.job, null, 2));
+        const blob = await zip.generateAsync({ type: "blob", compression: "STORE", streamFiles: true });
+        const suffix = batches.length > 1 ? `-part-${String(index + 1).padStart(2, "0")}` : "";
+        await downloadBlob(blob, `vju-images-${state.job.id}${suffix}.zip`);
       }
-      zip.file("metadata/images.json", JSON.stringify(exported, null, 2));
-      zip.file("metadata/pages.json", JSON.stringify(state.pages, null, 2));
-      zip.file("metadata/crawl.json", JSON.stringify(state.job, null, 2));
-      // Images are already compressed; STORE avoids JSZip allocating extra
-      // buffers for deflation and streamFiles keeps individual entries small.
-      const blob = await zip.generateAsync({
-        type: "blob",
-        compression: "STORE",
-        streamFiles: true,
-      });
-      await downloadBlob(blob, `vju-images-${state.job.id}.zip`);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setError(
@@ -515,7 +511,7 @@ function Detail({
             </button>
           </div>
         </div>
-        {exporting && <p className="muted">Đang tải ảnh và nén thành ZIP, vui lòng chờ…</p>}
+        {exporting && <p className="muted">Đang tải ảnh và tạo các file ZIP (mỗi file tối đa 50 ảnh), vui lòng chờ…</p>}
         <div className="bar">
           <i
             style={{
