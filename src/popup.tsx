@@ -128,7 +128,7 @@ function App() {
     setError("");
     setExporting(true);
     try {
-      const batchSize = 200;
+      const batchSize = 500;
       const batches = Array.from(
         { length: Math.max(1, Math.ceil(state.images.length / batchSize)) },
         (_, index) => state.images.slice(index * batchSize, (index + 1) * batchSize),
@@ -511,7 +511,7 @@ function Detail({
             </button>
           </div>
         </div>
-        {exporting && <p className="muted">Đang tải ảnh và tạo các file ZIP (mỗi file tối đa 200 ảnh), vui lòng chờ…</p>}
+        {exporting && <p className="muted">Đang tải ảnh và tạo các file ZIP (mỗi file tối đa 500 ảnh), vui lòng chờ…</p>}
         <div className="bar">
           <i
             style={{
