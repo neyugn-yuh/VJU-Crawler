@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "VJU Image Crawler",
+  "version": "0.1.0",
+  "description": "Quét, tải và xuất ảnh từ vju.ac.vn",
+  "permissions": ["storage", "tabs", "downloads", "alarms"],
+  "host_permissions": ["https://vju.ac.vn/*"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "VJU Image Crawler", "default_popup": "index.html" },
+  "content_scripts": [
+    { "matches": ["https://vju.ac.vn/*"], "js": ["content.js"], "run_at": "document_idle" }
+  ]
+}

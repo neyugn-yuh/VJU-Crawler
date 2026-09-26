@@ -1,0 +1,33 @@
+{
+  "name": "vju-image-crawler",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build && esbuild src/background.ts --bundle --format=esm --target=chrome120 --outfile=dist/background.js && esbuild src/content.ts --bundle --format=iife --target=chrome120 --outfile=dist/content.js",
+    "dev": "vite build --watch",
+    "test": "vitest run",
+    "lint": "eslint src tests",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "jszip": "^3.10.1",
+    "linkedom": "^0.18.12",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.320",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.8.0",
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0"
+  }
+}
