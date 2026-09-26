@@ -51,6 +51,16 @@ export async function list<T extends RecordType>(store: Store, jobId?: string): 
   });
 }
 
+export async function count(store: Store, jobId?: string): Promise<number> {
+  const db = await database();
+  return new Promise((resolve, reject) => {
+    const objectStore = db.transaction(store).objectStore(store);
+    const request = jobId ? objectStore.index('jobId').count(IDBKeyRange.only(jobId)) : objectStore.count();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
 export async function removeJob(id: string): Promise<void> {
   const db = await database();
   for (const name of ['pages', 'images', 'errors'] as Store[]) {

@@ -1,17 +1,31 @@
 import { parseHTML } from 'linkedom';
 import { extractFromDocument } from './extractor';
-import { get, list, put } from './db';
+import { count, get, list, put } from './db';
 import { DEFAULT_CONFIG, filenameFromUrl, isAllowedPage, matchesPattern, normalizePageUrl, normalizeUrl, uniqueFilename, validateConfig, type CrawlConfig, type CrawlError, type CrawledImage, type CrawledPage, type CrawlJob, type ExtractedImage, type PageScanResult } from './shared';
 
 const running = new Map<string, { paused: boolean; stopped: boolean }>();
+const notifyTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function id(prefix: string) { return `${prefix}_${crypto.randomUUID()}`; }
 
-async function notify(jobId: string) {
+async function emitProgress(jobId: string) {
   const job = await get<CrawlJob>('jobs', jobId);
   if (!job) return;
-  const [pages, images, errors] = await Promise.all([list<CrawledPage>('pages', jobId), list<CrawledImage>('images', jobId), list<CrawlError>('errors', jobId)]);
-  chrome.runtime.sendMessage({ type: 'PROGRESS', payload: { job, pages, images, errors } }).catch(() => undefined);
+  const [pageCount, imageCount, errorCount] = await Promise.all([
+    count('pages', jobId),
+    count('images', jobId),
+    count('errors', jobId),
+  ]);
+  chrome.runtime.sendMessage({ type: 'PROGRESS', payload: { job, pageCount, imageCount, errorCount } }).catch(() => undefined);
+}
+
+function notify(jobId: string) {
+  if (notifyTimers.has(jobId)) return;
+  const timer = setTimeout(() => {
+    notifyTimers.delete(jobId);
+    void emitProgress(jobId);
+  }, 150);
+  notifyTimers.set(jobId, timer);
 }
 
 async function saveImage(job: CrawlJob, image: ExtractedImage, pageUrl: string, filenames: Set<string>) {
@@ -127,7 +141,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       if (message.type === 'START_CRAWL') sendResponse({ ok: true, job: await startCrawl(message.config, sender.tab?.id ?? message.tabId) });
       else if (message.type === 'CONTROL_CRAWL') { const control = running.get(message.id); if (control) { control.paused = message.action === 'pause' ? true : message.action === 'resume' ? false : control.paused; control.stopped = message.action === 'stop'; } const job = await get<CrawlJob>('jobs', message.id); if (job) { job.status = message.action === 'pause' ? 'paused' : message.action === 'resume' ? 'running' : 'stopped'; job.updatedAt = Date.now(); await put('jobs', job); await notify(job.id); } sendResponse({ ok: true }); }
-      else if (message.type === 'GET_STATE') { const jobs = await list<CrawlJob>('jobs'); const selected = message.id || jobs.at(-1)?.id; const [pages, images, errors] = selected ? await Promise.all([list<CrawledPage>('pages', selected), list<CrawledImage>('images', selected), list<CrawlError>('errors', selected)]) : [[], [], []]; sendResponse({ jobs, job: selected ? jobs.find((job) => job.id === selected) : undefined, pages, images, errors }); }
+      else if (message.type === 'GET_STATE') {
+        const jobs = await list<CrawlJob>('jobs');
+        const selected = message.id || jobs.at(-1)?.id;
+        let pages: CrawledPage[] = [];
+        let images: CrawledImage[] = [];
+        let errors: CrawlError[] = [];
+        let pageCount = 0;
+        let imageCount = 0;
+        let errorCount = 0;
+        if (selected) {
+          [pageCount, imageCount, errorCount] = await Promise.all([count('pages', selected), count('images', selected), count('errors', selected)]);
+          if (message.detail === true) [pages, images, errors] = await Promise.all([list<CrawledPage>('pages', selected), list<CrawledImage>('images', selected), list<CrawlError>('errors', selected)]);
+        }
+        sendResponse({ jobs, job: selected ? jobs.find((job) => job.id === selected) : undefined, pages, images, errors, pageCount, imageCount, errorCount });
+      }
       else if (message.type === 'DELETE_JOB') { const { removeJob } = await import('./db'); await removeJob(message.id); sendResponse({ ok: true }); }
       else sendResponse({ ok: false, error: 'Unknown message' });
     } catch (error) { sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }); }
