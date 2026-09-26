@@ -167,11 +167,15 @@ function App() {
     if (!state.job || exporting) return;
     setError(""); setExporting(true);
     try {
-      const zip = new JSZip(); const folder = zip.folder("pages")!;
+      const zip = new JSZip(); const folder = zip.folder("pages")!; const exportedPages: CrawledPage[] = [];
       for (const [index, page] of state.pages.entries()) {
-        if (page.html) folder.file(`${String(index + 1).padStart(4, "0")}.html`, page.html);
+        try {
+          const html = page.html || await (async () => { const response = await fetch(page.url); if (!response.ok) throw new Error(`HTTP ${response.status}`); return response.text(); })();
+          folder.file(`${String(index + 1).padStart(4, "0")}.html`, html);
+          const { html: _html, ...metadata } = page; exportedPages.push(metadata);
+        } catch { exportedPages.push(page); }
       }
-      zip.file("metadata/pages.json", JSON.stringify(state.pages.map(({ html, ...page }) => page), null, 2));
+      zip.file("metadata/pages.json", JSON.stringify(exportedPages, null, 2));
       const blob = await zip.generateAsync({ type: "blob", compression: "STORE", streamFiles: true });
       await downloadBlob(blob, `vju-pages-${state.job.id}.zip`);
     } catch (e) { setError(`Export Pages thất bại: ${e instanceof Error ? e.message : String(e)}`); }
