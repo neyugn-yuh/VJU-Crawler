@@ -41,6 +41,7 @@ export interface CrawledPage {
   statusCode?: number;
   error?: string;
   crawledAt?: number;
+  html?: string;
 }
 
 export interface ExtractedImage {

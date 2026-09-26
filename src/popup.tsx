@@ -163,6 +163,20 @@ function App() {
       setExporting(false);
     }
   };
+  const exportPages = async () => {
+    if (!state.job || exporting) return;
+    setError(""); setExporting(true);
+    try {
+      const zip = new JSZip(); const folder = zip.folder("pages")!;
+      for (const [index, page] of state.pages.entries()) {
+        if (page.html) folder.file(`${String(index + 1).padStart(4, "0")}.html`, page.html);
+      }
+      zip.file("metadata/pages.json", JSON.stringify(state.pages.map(({ html, ...page }) => page), null, 2));
+      const blob = await zip.generateAsync({ type: "blob", compression: "STORE", streamFiles: true });
+      await downloadBlob(blob, `vju-pages-${state.job.id}.zip`);
+    } catch (e) { setError(`Export Pages thất bại: ${e instanceof Error ? e.message : String(e)}`); }
+    finally { setExporting(false); }
+  };
   const downloadOne = async (image: CrawledImage) => {
     const blob = await (await fetch(image.url)).blob();
     downloadBlob(blob, image.filename);
@@ -234,6 +248,7 @@ function App() {
           setSearch={setSearch}
           control={control}
           exportZip={exportZip}
+          exportPages={exportPages}
           exporting={exporting}
           downloadOne={downloadOne}
         />
@@ -468,6 +483,7 @@ function Detail({
   setSearch,
   control,
   exportZip,
+  exportPages,
   exporting,
   downloadOne,
 }: {
@@ -477,6 +493,7 @@ function Detail({
   setSearch: (value: string) => void;
   control: (action: "pause" | "resume" | "stop") => void;
   exportZip: () => void;
+  exportPages: () => void;
   exporting: boolean;
   downloadOne: (image: CrawledImage) => void;
 }) {
@@ -509,6 +526,7 @@ function Detail({
             <button className="primary" disabled={exporting} onClick={exportZip}>
               {exporting ? "Đang tạo ZIP…" : "Export ZIP"}
             </button>
+            <button disabled={exporting} onClick={exportPages}>Export Pages</button>
           </div>
         </div>
         {exporting && <p className="muted">Đang tải ảnh và tạo các file ZIP (mỗi file tối đa 500 ảnh), vui lòng chờ…</p>}

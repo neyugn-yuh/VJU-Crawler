@@ -83,7 +83,7 @@ async function crawlWebsite(job: CrawlJob) {
       const result = await fetchWithRetry(item.url, job);
       const { document } = parseHTML(result.html);
       const scan = extractFromDocument(document as unknown as Document, item.url, { srcset: job.includeSrcset, lazy: job.includeLazyImages, background: job.includeBackgroundImages, meta: job.includeMetaImages });
-      const links = await saveScan(job, scan, { ...page, statusCode: result.status }, filenames);
+      const links = await saveScan(job, scan, { ...page, statusCode: result.status, html: result.html }, filenames);
       if (job.mode !== 'current-page' && item.depth < job.maxDepth) for (const raw of links) {
         let link: string;
         try { link = normalizePageUrl(raw, item.url); } catch { continue; }
