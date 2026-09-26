@@ -170,7 +170,7 @@ function App() {
       const zip = new JSZip(); const folder = zip.folder("pages")!; const exportedPages: CrawledPage[] = [];
       for (const [index, page] of state.pages.entries()) {
         try {
-          const html = page.html || await (async () => { const response = await fetch(page.url); if (!response.ok) throw new Error(`HTTP ${response.status}`); return response.text(); })();
+          const html = await (async () => { const response = await fetch(page.url); if (!response.ok) throw new Error(`HTTP ${response.status}`); return response.text(); })();
           folder.file(`${String(index + 1).padStart(4, "0")}.html`, html);
           const { html: _html, ...metadata } = page; exportedPages.push(metadata);
         } catch { exportedPages.push(page); }

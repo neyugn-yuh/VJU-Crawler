@@ -83,7 +83,7 @@ async function crawlWebsite(job: CrawlJob) {
       const result = await fetchWithRetry(item.url, job);
       const { document } = parseHTML(result.html);
       const scan = extractFromDocument(document as unknown as Document, item.url, { srcset: job.includeSrcset, lazy: job.includeLazyImages, background: job.includeBackgroundImages, meta: job.includeMetaImages });
-      const links = await saveScan(job, scan, { ...page, statusCode: result.status, html: result.html }, filenames);
+      const links = await saveScan(job, scan, { ...page, statusCode: result.status }, filenames);
       if (job.mode !== 'current-page' && item.depth < job.maxDepth) for (const raw of links) {
         let link: string;
         try { link = normalizePageUrl(raw, item.url); } catch { continue; }
@@ -152,7 +152,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         let errorCount = 0;
         if (selected) {
           [pageCount, imageCount, errorCount] = await Promise.all([count('pages', selected), count('images', selected), count('errors', selected)]);
-          if (message.detail === true) [pages, images, errors] = await Promise.all([list<CrawledPage>('pages', selected), list<CrawledImage>('images', selected), list<CrawlError>('errors', selected)]);
+          if (message.detail === true) [pages, images, errors] = await Promise.all([
+            list<CrawledPage>('pages', selected).then((items) => items.map(({ html, ...page }) => page)),
+            list<CrawledImage>('images', selected),
+            list<CrawlError>('errors', selected),
+          ]);
         }
         sendResponse({ jobs, job: selected ? jobs.find((job) => job.id === selected) : undefined, pages, images, errors, pageCount, imageCount, errorCount });
       }
