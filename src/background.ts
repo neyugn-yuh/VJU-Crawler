@@ -3,7 +3,7 @@ import { extractFromDocument } from './extractor';
 import { count, get, list, put } from './db';
 import { DEFAULT_CONFIG, filenameFromUrl, isAllowedPage, matchesPattern, normalizePageUrl, normalizeUrl, uniqueFilename, validateConfig, type CrawlConfig, type CrawlError, type CrawledImage, type CrawledPage, type CrawlJob, type ExtractedImage, type PageScanResult } from './shared';
 
-const running = new Map<string, { paused: boolean; stopped: boolean }>();
+const running = new Map<string, { paused: boolean; stopped: boolean; controllers: Set<AbortController> }>();
 const notifyTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function id(prefix: string) { return `${prefix}_${crypto.randomUUID()}`; }
@@ -50,18 +50,19 @@ async function saveScan(job: CrawlJob, scan: PageScanResult, page: CrawledPage, 
   return scan.links;
 }
 
-async function fetchWithRetry(url: string, job: CrawlJob): Promise<{ html: string; status: number }> {
+async function fetchWithRetry(url: string, job: CrawlJob, control?: { controllers: Set<AbortController> }): Promise<{ html: string; status: number }> {
   let last: unknown;
   for (let attempt = 0; attempt <= job.retryCount; attempt++) {
     if (attempt) await new Promise((resolve) => setTimeout(resolve, Math.min(3000, 500 * 2 ** (attempt - 1))));
     const controller = new AbortController();
+    control?.controllers.add(controller);
     const timeout = setTimeout(() => controller.abort(), job.timeoutMs);
     try {
       const response = await fetch(url, { signal: controller.signal, headers: { Accept: 'text/html,application/xhtml+xml' } });
       if (!response.ok && ![408, 425, 429, 500, 502, 503, 504].includes(response.status)) throw new Error(`HTTP ${response.status}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return { html: await response.text(), status: response.status };
-    } catch (error) { last = error; } finally { clearTimeout(timeout); }
+    } catch (error) { last = error; if (control && running.get(job.id)?.stopped) throw error; } finally { clearTimeout(timeout); control?.controllers.delete(controller); }
   }
   throw last instanceof Error ? last : new Error(String(last));
 }
@@ -80,7 +81,7 @@ async function crawlWebsite(job: CrawlJob) {
     await put('pages', page); await notify(job.id);
     try {
       if (robots && !robots(item.url)) throw new Error('robots.txt disallow');
-      const result = await fetchWithRetry(item.url, job);
+      const result = await fetchWithRetry(item.url, job, control);
       const { document } = parseHTML(result.html);
       const scan = extractFromDocument(document as unknown as Document, item.url, { srcset: job.includeSrcset, lazy: job.includeLazyImages, background: job.includeBackgroundImages, meta: job.includeMetaImages });
       const links = await saveScan(job, scan, { ...page, statusCode: result.status }, filenames);
@@ -124,10 +125,12 @@ async function fetchRobots(startUrl: string): Promise<((url: string) => boolean)
 async function startCrawl(config: CrawlConfig, tabId?: number): Promise<CrawlJob> {
   const value = validateConfig(config);
   const job: CrawlJob = { ...value, id: id('crawl'), status: 'running', createdAt: Date.now(), updatedAt: Date.now() };
-  await put('jobs', job); running.set(job.id, { paused: false, stopped: false });
+  await put('jobs', job); running.set(job.id, { paused: false, stopped: false, controllers: new Set() });
   if (value.mode === 'current-page' && tabId !== undefined) {
     const options = { srcset: value.includeSrcset, lazy: value.includeLazyImages, background: value.includeBackgroundImages, meta: value.includeMetaImages };
     chrome.tabs.sendMessage(tabId, { type: value.renderDynamicContent ? 'SCROLL_SCAN' : 'SCAN_PAGE', options }, async (scan?: PageScanResult) => {
+      const control = running.get(job.id);
+      if (control?.stopped) { running.delete(job.id); return; }
       if (chrome.runtime.lastError || !scan) { job.status = 'failed'; await put('jobs', job); await notify(job.id); return; }
       const filenames = new Set<string>(); const page: CrawledPage = { id: id('page'), jobId: job.id, url: scan.pageUrl, depth: 0, status: 'crawling', imageCount: 0, linkCount: 0 };
       await put('pages', page); await saveScan(job, scan, page, filenames); job.status = 'completed'; job.updatedAt = Date.now(); job.completedAt = Date.now(); await put('jobs', job); await notify(job.id); running.delete(job.id);
@@ -140,7 +143,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     try {
       if (message.type === 'START_CRAWL') sendResponse({ ok: true, job: await startCrawl(message.config, sender.tab?.id ?? message.tabId) });
-      else if (message.type === 'CONTROL_CRAWL') { const control = running.get(message.id); if (control) { control.paused = message.action === 'pause' ? true : message.action === 'resume' ? false : control.paused; control.stopped = message.action === 'stop'; } const job = await get<CrawlJob>('jobs', message.id); if (job) { job.status = message.action === 'pause' ? 'paused' : message.action === 'resume' ? 'running' : 'stopped'; job.updatedAt = Date.now(); await put('jobs', job); await notify(job.id); } sendResponse({ ok: true }); }
+      else if (message.type === 'CONTROL_CRAWL') { const control = running.get(message.id); if (control) { control.paused = message.action === 'pause' ? true : message.action === 'resume' ? false : control.paused; control.stopped = message.action === 'stop'; if (control.stopped) for (const controller of control.controllers) controller.abort(); } const job = await get<CrawlJob>('jobs', message.id); if (job) { job.status = message.action === 'pause' ? 'paused' : message.action === 'resume' ? 'running' : 'stopped'; job.updatedAt = Date.now(); await put('jobs', job); await notify(job.id); } sendResponse({ ok: true }); }
       else if (message.type === 'GET_STATE') {
         const jobs = await list<CrawlJob>('jobs');
         const selected = message.id || jobs.at(-1)?.id;
